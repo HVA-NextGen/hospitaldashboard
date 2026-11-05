@@ -1,0 +1,74 @@
+name: Deploy to Azure
+
+# Manual only: this creates or updates billable Azure resources.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to create or update billable Azure resources'
+        required: true
+        type: string
+
+# Never run two deployments at once, and never cancel one that is half finished.
+concurrency:
+  group: azure-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy dashboard
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Configure required reviewers on this environment to add an approval step.
+    environment: azure-demo
+    permissions:
+      contents: read
+      actions: read
+      id-token: write # lets azure/login request an OIDC token; no secrets are stored
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require a successful CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq 'length')
+          if [ "$passed" -lt 1 ]; then
+            echo "::error::No successful 'Build and test' run found for commit $GITHUB_SHA. Wait for CI to pass, then deploy again."
+            exit 1
+          fi
+
+      - name: Check Azure settings
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          missing=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_RESOURCE_GROUP; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository variable $name is not set. Run scripts/setup-github-oidc.ps1 (see README)."
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Sign in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure and application
+        shell: pwsh
+        run: >
+          ./scripts/deploy.ps1
+          -SubscriptionId '${{ vars.AZURE_SUBSCRIPTION_ID }}'
+          -ResourceGroup '${{ vars.AZURE_RESOURCE_GROUP }}'
+          -ApproveDeployment

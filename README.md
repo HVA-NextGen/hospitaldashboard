@@ -39,10 +39,12 @@ Open `http://localhost:8080`. Docker Desktop must be running in Linux-container 
 | `src/HospitalDashboard.Host` | Static asset delivery, compression, health checks |
 | `tests/HospitalDashboard.Tests` | Host integration tests |
 | `infra` | Resource-group-scoped Bicep, foundation then application |
-| `scripts/deploy.ps1` | Explicitly approved local deployment |
+| `scripts/deploy.ps1` | Explicitly approved deployment, run locally or by the deploy workflow |
+| `scripts/setup-github-oidc.ps1` | One-time Azure and GitHub setup for the deploy workflow (dry run by default) |
 | `.github/workflows/ci.yml` | Build/test/publish/container build on pushes and pull requests |
+| `.github/workflows/deploy.yml` | Manual deployment to Azure using OIDC |
 
-CI does **not** deploy to Azure and needs no Azure credentials.
+The CI workflow does **not** deploy to Azure and needs no Azure credentials. Deployment is a separate, manually triggered workflow.
 
 ## Azure hosting
 
@@ -67,7 +69,32 @@ Sweden Central public retail prices checked during planning:
 
 Light demo use may cost roughly **US$5–10/month**, but this is **not a spending cap**. Continuous active compute for 730 hours is about US$19.71 plus the registry before grants. Subscription-shared free allowances may already be consumed. Transfer, storage overages, tax and optional later-added monitoring are extra. Check current prices before deployment.
 
-### Deployment (separate approval required)
+### Deploying from GitHub Actions
+
+The **Deploy to Azure** workflow (`.github/workflows/deploy.yml`) runs `scripts/deploy.ps1` on a GitHub-hosted runner. It signs in with **OIDC**, so no Azure secret is stored in GitHub.
+
+It can only be started manually (**Actions > Deploy to Azure > Run workflow**) and:
+- runs only on `main`, and only if you type `deploy` in the confirmation input;
+- requires a successful **Build and test** run for the exact commit being deployed;
+- uses the `azure-demo` environment, where you can require reviewers before the job starts;
+- never runs two deployments at once.
+
+One-time setup, run by someone with permission to create Entra app registrations and role assignments:
+
+```powershell
+az login --tenant e6eb6b36-75f8-4c32-94fc-953eff5c5c37
+gh auth login
+# Dry run: prints the plan and changes nothing.
+.\scripts\setup-github-oidc.ps1
+# Creates the identity, role assignments, environment and variables.
+.\scripts\setup-github-oidc.ps1 -Apply
+```
+
+This creates an app registration with a federated credential that trusts **only** the `azure-demo` environment of this repository, plus `Contributor` and a restricted `Role Based Access Control Administrator` (limited to assigning `AcrPull`) on `rg-hospital-dashboard` only. It also sets the repository variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RESOURCE_GROUP`. These are identifiers, not secrets. Afterwards, add required reviewers to the `azure-demo` environment in GitHub settings.
+
+The workflow builds the image on the runner with Docker, so it does not need the `-UseSdkContainerBuild` option. To remove the access later, delete the app registration (`github-hospitaldashboard-deploy`) and the `azure-demo` environment.
+
+### Deployment from your machine (separate approval required)
 
 Requires Azure CLI, Bicep, PowerShell 7 and Docker. Authenticate to the target tenant with access to create resources, assign managed identities/registry roles and push images. Verify regional consumption capacity and applicable policies first.
 

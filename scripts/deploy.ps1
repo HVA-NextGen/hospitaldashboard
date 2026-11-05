@@ -40,13 +40,13 @@ try {
     $common = @('--subscription', $SubscriptionId, '--resource-group', $ResourceGroup)
     $parameters = @('--parameters', "location=$Location", "deployedBy=$DeployedBy")
     if ($Preview) {
-        Invoke-Azure (@('deployment', 'group', 'what-if') + $common + @('--template-file', 'infra\main.bicep') + $parameters)
+        Invoke-Azure (@('deployment', 'group', 'what-if') + $common + @('--template-file', 'infra/main.bicep') + $parameters)
         return
     }
 
     Invoke-Docker -Arguments @('info', '--format', '{{.ServerVersion}}')
-    Invoke-Azure (@('deployment', 'group', 'validate') + $common + @('--template-file', 'infra\main.bicep') + $parameters + @('--only-show-errors', '-o', 'none'))
-    $base = Invoke-Azure (@('deployment', 'group', 'create') + $common + @('--name', 'hospital-foundation', '--template-file', 'infra\main.bicep') + $parameters + @('--only-show-errors', '-o', 'json')) | ConvertFrom-Json
+    Invoke-Azure (@('deployment', 'group', 'validate') + $common + @('--template-file', 'infra/main.bicep') + $parameters + @('--only-show-errors', '-o', 'none'))
+    $base = Invoke-Azure (@('deployment', 'group', 'create') + $common + @('--name', 'hospital-foundation', '--template-file', 'infra/main.bicep') + $parameters + @('--only-show-errors', '-o', 'json')) | ConvertFrom-Json
     $registry = $base.properties.outputs.registryName.value
     $server = $base.properties.outputs.registryServer.value
     $tag = [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -54,7 +54,7 @@ try {
     Invoke-Azure -Arguments @('acr', 'login', '--subscription', $SubscriptionId, '--name', $registry)
     if ($UseSdkContainerBuild) {
         # Host SDK uses the host's trusted NuGet connection instead of Docker's network.
-        & dotnet publish 'src\HospitalDashboard.Host\HospitalDashboard.Host.csproj' -c Release --os linux --arch x64 /t:PublishContainer "-p:ContainerRepository=hospitaldashboard" "-p:ContainerImageTag=$tag"
+        & dotnet publish 'src/HospitalDashboard.Host/HospitalDashboard.Host.csproj' -c Release --os linux --arch x64 /t:PublishContainer "-p:ContainerRepository=hospitaldashboard" "-p:ContainerImageTag=$tag"
         if ($LASTEXITCODE -ne 0) { throw 'SDK container publishing failed.' }
         Invoke-Docker -Arguments @('tag', "hospitaldashboard:$tag", $image)
     }
@@ -67,8 +67,8 @@ try {
     if ($digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Registry returned an invalid image digest.' }
     $immutableImage = "$server/hospitaldashboard@$digest"
     $appParameters = $parameters + @("image=$immutableImage")
-    Invoke-Azure (@('deployment', 'group', 'validate') + $common + @('--template-file', 'infra\app.bicep') + $appParameters + @('--only-show-errors', '-o', 'none'))
-    $app = Invoke-Azure (@('deployment', 'group', 'create') + $common + @('--name', 'hospital-app', '--template-file', 'infra\app.bicep') + $appParameters + @('--only-show-errors', '-o', 'json')) | ConvertFrom-Json
+    Invoke-Azure (@('deployment', 'group', 'validate') + $common + @('--template-file', 'infra/app.bicep') + $appParameters + @('--only-show-errors', '-o', 'none'))
+    $app = Invoke-Azure (@('deployment', 'group', 'create') + $common + @('--name', 'hospital-app', '--template-file', 'infra/app.bicep') + $appParameters + @('--only-show-errors', '-o', 'json')) | ConvertFrom-Json
     $url = $app.properties.outputs.appUrl.value
     $health = Invoke-WebRequest "$url/healthz" -TimeoutSec 120
     if ($health.StatusCode -ne 200 -or $health.Content.Trim() -ne 'Healthy') { throw "Health verification failed: $url/healthz" }
@@ -76,6 +76,9 @@ try {
     if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'lang="fi"') { throw "Application verification failed: $url" }
     Write-Host "Verified public dashboard: $url"
     Write-Host "Image: $immutableImage"
+    if ($env:GITHUB_STEP_SUMMARY) {
+        Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### Deployed`n- Dashboard: $url`n- Image: ``$immutableImage``"
+    }
 }
 finally {
     Pop-Location
