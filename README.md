@@ -1,6 +1,6 @@
-# Kaitajärven keskussairaala
+# Kaitajärven hyvinvointialue: ambulanssit ja saapuvat potilaat
 
-A Finnish-language, live **fictional hospital dashboard** for the invented Kaitajärven hyvinvointialue. All counts, wards, trends, staffing and alerts are synthetic. **No patient data. Not a clinical decision tool.**
+A Finnish-language **fictional emergency-care dashboard** for the invented Kaitajärven hyvinvointialue. It shows ambulances on their way to Kaitajärven keskussairaala on a schematic regional map. All data is a fixed, synthetic example. **No patient data. Not a clinical decision tool.**
 
 ## Run locally
 
@@ -10,35 +10,34 @@ Requires .NET 10 SDK.
 dotnet run --project src\HospitalDashboard.Host
 ```
 
-Open the localhost URL printed by ASP.NET Core. The Blazor WebAssembly client runs in the browser; the ASP.NET Core host only serves assets and `/healthz`. No database, authentication, cookies, external data feeds or SignalR connection.
+Open the localhost URL printed by ASP.NET Core. The Blazor WebAssembly client runs in the browser; the ASP.NET Core host only serves assets and `/healthz`. No database, authentication, cookies, external data feeds, timers or SignalR connection.
 
 ```powershell
-dotnet test HospitalDashboard.slnx -c Release
 docker build --tag hospitaldashboard:local .
 docker run --rm --name hospital-dashboard-local -p 8080:8080 hospitaldashboard:local
 ```
 
-Open `http://localhost:8080`. Docker Desktop must be running in Linux-container mode.
+Open `http://localhost:8080`. Docker Desktop must be running in Linux-container mode. If NuGet TLS fails inside Docker, see the SDK container build option under Deployment.
 
-## Demo behavior
+## What the dashboard shows
 
-- Seven sections: bed occupancy, emergency queue/wait, staffing, operating theatres, equipment, operational alerts and occupancy trends.
-- Browser state updates every five seconds. Each viewer has an independent simulation; reload starts a new one. Background tabs may throttle timers; resuming advances once, without replaying missed ticks.
-- A ward filter scopes beds, staffing, ward alerts and trends. ED, theatres, equipment and hospital-wide alerts always remain explicitly labeled **Koko sairaala**.
-- The chart starts with 60 minutes of generated history, then keeps up to 720 samples / one hour of rolling session data. History is synthetic and disappears on reload.
-- Times use `Europe/Helsinki` and Finnish formatting. No data leaves the browser during simulation.
-- Demo occupancy boundaries: attention at 85%, critical at 95%. Staffing below its fictional target creates an attention status. ED wait creates attention at 45 minutes and critical at 60 minutes. These are demonstration settings, not clinical guidance.
-- The UI is read-only except for ward filtering; no pause, reset or alert-acknowledgement controls.
-- The dashboard has no prominent demo banner or explanatory demo panel. A discreet footer identifies the fictional hospital and synthetic data.
+- A snapshot at a fixed time (5.11.2026 klo 20.15) from fixed data in `src/HospitalDashboard.Core/ArrivalsData.cs`. Nothing updates or moves; reloading shows the same view.
+- Summary figures: ambulances heading to the hospital, the next arrival, missions today against a typical Thursday, and free units.
+- A schematic SVG map with the lake, roads, settlements, ambulance stations and the hospital. Circle size shows missions started in each area today.
+- Each incoming ambulance sits at its fixed progress along its road. Select one in the list (or click it on the map) to highlight its route and see its details.
+- Missions per hour today against a typical Thursday, missions by area, and free units per station.
+- Urgency classes A–D, with A the most urgent, are shown with the general reason for each mission. No patient details are included.
+- The layout is desktop-only (minimum width 1280 px) and has no responsive or mobile rules.
+- Times use Finnish formatting. A discreet footer identifies the fictional area and synthetic data.
 
 ## Structure
 
 | Location | Purpose |
 |---|---|
-| `src/HospitalDashboard.Client` | Finnish Razor dashboard, responsive CSS, client lifecycle |
-| `src/HospitalDashboard.Core` | Reproducible simulation, invariants, filtering and derived alerts |
+| `src/HospitalDashboard.Client` | Finnish Razor dashboard page and CSS |
+| `src/HospitalDashboard.Core` | Static example data for the map, ambulances, stations and hourly counts |
 | `src/HospitalDashboard.Host` | Static asset delivery, compression, health checks |
-| `tests/HospitalDashboard.Tests` | Simulation and host integration tests |
+| `tests/HospitalDashboard.Tests` | Host integration tests |
 | `infra` | Resource-group-scoped Bicep, foundation then application |
 | `scripts/deploy.ps1` | Explicitly approved local deployment |
 | `.github/workflows/ci.yml` | Build/test/publish/container build on pushes and pull requests |
@@ -57,7 +56,7 @@ Resources:
 
 The app is deployed by image digest, not a mutable `latest` tag. The registry uses its authenticated public endpoint (Basic does not offer a private endpoint). No VNet, database, Application Insights or retained Log Analytics workspace is provisioned. Use Container Apps live logs for troubleshooting.
 
-Scale-to-zero can delay the initial page load. An already-loaded browser continues simulating without polling the host, even after the host scales down.
+Scale-to-zero can delay the initial page load. Once loaded, the page makes no further requests, because the data is fixed in the app.
 
 ### Cost
 
@@ -101,4 +100,4 @@ Inspect the resource group first. Never automatically delete the existing resour
 
 ## Validation
 
-The tests cover deterministic seeds, bounded long-running simulation, reconciled counts, ward selection, threshold boundaries, history expiry, health responses, static boot assets and missing-asset behavior. Browser checks should verify multiple updates, independent sessions, reset-on-reload, filtering, mobile layout and no simulation network polling.
+The remaining host tests cover health responses, static boot assets and missing-asset behavior. The simulation tests were removed together with the simulation. Browser checks verified the page loads without console errors, that selecting an ambulance updates the map and details, and that the page makes no background requests.

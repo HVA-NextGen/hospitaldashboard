@@ -24,7 +24,7 @@ public sealed partial class HostTests : IClassFixture<WebApplicationFactory<Prog
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         var html = await response.Content.ReadAsStringAsync();
         Assert.Contains("lang=\"fi\"", html);
-        Assert.Contains("Kaitajärven keskussairaala", html);
+        Assert.Contains("Ambulanssit ja saapuvat potilaat", html);
         Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
     }
 

@@ -1,180 +1,323 @@
 @page "/"
 @using System.Globalization
 @using HospitalDashboard.Core
-@implements IAsyncDisposable
-@inject ILogger<Home> Logger
 
-<PageTitle>Tilannekuva | Kaitajärven keskussairaala</PageTitle>
+<PageTitle>Ambulanssit ja saapuvat potilaat | Kaitajärven hyvinvointialue</PageTitle>
 
 <header class="site-header">
-    <a class="brand" href="/" aria-label="Kaitajärven keskussairaala, etusivu">
+    <a class="brand" href="/" aria-label="Kaitajärven hyvinvointialue, etusivu">
         <span class="brand-mark" aria-hidden="true">+</span>
-        <span><strong>Kaitajärvi</strong><small>HYVINVOINTIALUE</small></span>
+        <span class="brand-text"><strong>Kaitajärvi</strong><small>HYVINVOINTIALUE</small></span>
     </a>
-    <div class="header-divider"></div>
-    <span class="hospital-name">Kaitajärven keskussairaala</span>
-    <div class="header-right"><span class="region-mark" aria-hidden="true">K</span><span>Sairaalan toiminta<small>Toiminnan tilannekuva</small></span></div>
+    <span class="header-divider"></span>
+    <span class="header-title">Ensihoito ja päivystys</span>
 </header>
 
 <main>
-    <section class="page-heading" aria-labelledby="page-title">
-        <div><div class="eyebrow">SAIRAALAN TOIMINTA / YLEISNÄKYMÄ</div><h1 id="page-title">Yhteinen tilannekuva<span class="title-dot">.</span></h1><p>Ajantasainen näkymä sairaalan kapasiteettiin ja resursseihin.</p></div>
-        <div class="live-panel"><span class="live-badge"><span aria-hidden="true"></span> Tilannekuva päivittyy</span><small>Päivitetty <time datetime="@state.UpdatedAt.ToString("O")">@FinnishTime(state.UpdatedAt)</time> · 5 s välein</small></div>
+    <section class="hero" aria-labelledby="page-title">
+        <div>
+            <p class="eyebrow">ENSIHOITO <span>/</span> SAAPUVAT POTILAAT</p>
+            <h1 id="page-title">Ambulanssit ja saapuvat potilaat</h1>
+            <p class="lead">Keskussairaalan päivystykseen matkalla olevat yksiköt ja alueen tehtävät.</p>
+        </div>
+        <p class="snapshot">Tilanne <time datetime="@ArrivalsData.Snapshot.ToString("s")">@SnapshotText</time></p>
     </section>
 
-    @if (failed)
-    {
-        <div class="failure" role="alert">Tilannekuvan päivitys epäonnistui. Näytetyt luvut eivät enää päivity. Lataa sivu uudelleen.</div>
-    }
-
-    <div class="toolbar">
-        <div class="view-label"><span class="grid-symbol" aria-hidden="true">▦</span> Toiminnan yleiskuva <span class="subtle">/</span> <strong>@SelectionName</strong></div>
-        <div class="filter"><label for="ward-filter">Osasto</label><select id="ward-filter" @bind="selectedWard"><option value="">Kaikki osastot</option>@foreach (var ward in state.Wards) { <option value="@ward.Id">@ward.Name</option> }</select></div>
-    </div>
-
-    <section class="metrics" aria-label="Keskeiset tunnusluvut">
-        <article class="metric-card"><div class="metric-title">Vuodepaikkojen käyttöaste <span class="metric-icon blue" aria-hidden="true">▤</span></div><div class="metric-value">@Occupancy.ToString("P0")<span class="metric-unit">@Occupied / @Capacity paikkaa</span></div><div class="meter"><span style="@Width(Occupancy)" class="@OccupancyClass(Occupancy)"></span></div><div class="metric-footer"><span class="status-text @OccupancyClass(Occupancy)">@OccupancyLabel(Occupancy)</span><span>@SelectionName</span></div></article>
-        <article class="metric-card"><div class="metric-title">Vapaat vuodepaikat <span class="metric-icon green" aria-hidden="true">+</span></div><div class="metric-value">@Available<span class="metric-unit">paikkaa käytettävissä</span></div><div class="metric-note">Kapasiteetti yhteensä @Capacity paikkaa</div><div class="metric-footer"><span class="status-text green">● Käytettävissä</span><span>@SelectionName</span></div></article>
-        <article class="metric-card"><div class="metric-title">Päivystyksen odotusaika <span class="metric-icon amber" aria-hidden="true">◷</span></div><div class="metric-value">@state.WaitMinutes <span class="value-unit">min</span><span class="metric-unit">@state.Queue henkilöä jonossa</span></div><div class="metric-note">Arvioitu odotus vastaanotolle</div><div class="metric-footer"><span class="status-text @(state.WaitMinutes >= 45 ? "amber" : "green")">@(state.WaitMinutes >= 45 ? "▲ Kohonnut odotus" : "● Tavanomainen")</span><span>Koko sairaala</span></div></article>
-        <article class="metric-card"><div class="metric-title">Henkilöstö vuorossa <span class="metric-icon violet" aria-hidden="true">♧</span></div><div class="metric-value">@Staff<span class="metric-unit">tavoite @RequiredStaff ammattilaista</span></div><div class="metric-note">Hoitohenkilöstö · nykyinen työvuoro</div><div class="metric-footer"><span class="status-text @(Staff < RequiredStaff ? "amber" : "green")">@(Staff < RequiredStaff ? $"▲ Vaje {RequiredStaff - Staff}" : "● Tavoite täyttyy")</span><span>@SelectionName</span></div></article>
+    <section class="summary" aria-label="Keskeiset luvut">
+        <article class="card">
+            <h2>Matkalla sairaalaan</h2>
+            <p class="value">@units.Count <span class="unit">yksikköä</span></p>
+            <p class="sub">@(units.Count(u => u.Priority == Priority.A) == 0 ? "Ei luokan A tehtäviä" : $"Joista luokan A tehtäviä {units.Count(u => u.Priority == Priority.A)}")</p>
+        </article>
+        <article class="card">
+            <h2>Seuraava saapuu</h2>
+            <p class="value">@units[0].EtaMinutes <span class="unit">min</span></p>
+            <p class="sub">@units[0].Id · klo @Clock(units[0]) · luokka @units[0].Priority</p>
+        </article>
+        <article class="card">
+            <h2>Tehtäviä tänään</h2>
+            <p class="value">@ArrivalsData.MissionsToday</p>
+            <p class="sub @(DeltaPercent > 0 ? "up" : "")">@DeltaText</p>
+        </article>
+        <article class="card">
+            <h2>Vapaita yksiköitä</h2>
+            <p class="value">@Free <span class="unit">/ @TotalUnits</span></p>
+            <p class="sub">@ArrivalsData.Stations.Count asemalla</p>
+        </article>
     </section>
 
-    <div class="dashboard-grid">
-        <section class="panel ward-panel" aria-labelledby="wards-title">
-            <div class="panel-heading"><div><h2 id="wards-title">Osastojen kapasiteetti</h2><p>Vuodepaikat ja henkilöstö samassa näkymässä</p></div><span class="count-tag">@Wards.Count osastoa</span></div>
-            <div class="table-scroll"><table><thead><tr><th>Osasto</th><th>Käyttöaste</th><th>Vapaat</th><th>Henkilöstö</th><th>Tilanne</th></tr></thead><tbody>
-                @foreach (var ward in Wards)
-                {
-                    <tr @key="ward.Id"><td><strong>@ward.Name</strong><small>@ward.Specialty</small></td><td><div class="occupancy-cell"><strong>@ward.Occupancy.ToString("P0")</strong><span>@ward.Occupied/@ward.Capacity</span></div><div class="meter small"><span style="@Width(ward.Occupancy)" class="@OccupancyClass(ward.Occupancy)"></span></div></td><td><strong class="free-count">@ward.Available</strong><small>paikkaa</small></td><td><strong>@ward.Staff <span class="subtle">/ @ward.RequiredStaff</span></strong><small>vuorossa / tavoite</small></td><td><span class="status-pill @LevelClass(ward.Level)">@LevelLabel(ward.Level)</span></td></tr>
-                }
-            </tbody></table></div>
-        </section>
-
-        <section class="panel alerts-panel" aria-labelledby="alerts-title">
-            <div class="panel-heading"><div><h2 id="alerts-title">Huomiot ja hälytykset</h2><p>Valittu osasto ja koko sairaalan huomiot</p></div><span class="count-tag alert-count">@Alerts.Count</span></div>
-            <div class="alerts-list">
-                @if (Alerts.Count == 0)
-                {
-                    <div class="empty-state"><span aria-hidden="true">✓</span><strong>Ei aktiivisia huomioita</strong><p>Resurssit ovat tavoiterajojen sisällä.</p></div>
-                }
-                @foreach (var alert in Alerts)
-                {
-                    <article @key="alert.Id" class="alert-item @LevelClass(alert.Level)"><span class="alert-symbol" aria-hidden="true">!</span><div><span class="alert-level">@LevelLabel(alert.Level) · @(alert.WardId is null ? "Koko sairaala" : "Osasto")</span><h3>@alert.Title</h3><p>@alert.Detail</p></div></article>
-                }
+    <div class="map-grid">
+        <section class="panel map-panel" aria-labelledby="map-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="section-label">ALUEEN TILANNE</p>
+                    <h2 id="map-heading">Kartta</h2>
+                </div>
+                <ul class="legend" aria-label="Karttamerkit">
+                    <li><span class="dot p-A">A</span><span class="dot p-B">B</span><span class="dot p-C">C</span><span class="dot p-D">D</span> Ambulanssi, luokka</li>
+                    <li><span class="swatch-circle"></span> Tehtävät tänään</li>
+                    <li><span class="swatch-station"></span> Asema</li>
+                </ul>
             </div>
-        </section>
-
-        <section class="panel trend-panel" aria-labelledby="trends-title">
-            <div class="panel-heading"><div><h2 id="trends-title">Kapasiteetin kehitys</h2><p>@SelectionName · vuodepaikkojen käyttöaste, viimeiset 60 min</p></div><span class="chart-key"><span></span> Käyttöaste</span></div>
-            <div class="chart-container">
-                <svg class="trend-chart" viewBox="0 0 760 200" role="img" aria-labelledby="chart-title chart-desc">
-                    <title id="chart-title">Vuodepaikkojen käyttöaste</title><desc id="chart-desc">@ChartSummary</desc>
-                    @foreach (var tick in new[] { 0, 25, 50, 75, 100 })
+            <svg class="map" viewBox="100 30 800 575" role="img" aria-labelledby="map-title map-desc">
+                <title id="map-title">Kaitajärven hyvinvointialueen kartta</title>
+                <desc id="map-desc">@MapSummary</desc>
+                <rect x="100" y="30" width="800" height="575" class="land" />
+                <path d="@ArrivalsData.LakePath" class="lake" />
+                @foreach (var road in ArrivalsData.Roads)
+                {
+                    <polyline points="@Poly(road.Points)" class="road-casing" />
+                    <polyline points="@Poly(road.Points)" class="road" />
+                }
+                <polyline points="@Poly(RoadOf(Selected.FromPlaceId).Points)" class="route" />
+                @foreach (var place in ArrivalsData.Places)
+                {
+                    <circle cx="@Num(place.Position.X)" cy="@Num(place.Position.Y)" r="@Num(Radius(place))" class="hotspot" />
+                }
+                @foreach (var place in ArrivalsData.Places)
+                {
+                    if (place.Id != "kaitajarvi")
                     {
-                        <line x1="42" x2="748" y1="@((172 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" y2="@((172 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" class="chart-grid" />
-                        <g><text x="0" y="@((176 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" class="chart-label">@tick %</text></g>
+                        <circle cx="@Num(place.Position.X)" cy="@Num(place.Position.Y)" r="4.5" class="town" />
                     }
-                    <path d="@AreaPath" class="chart-area" />
-                    <polyline points="@ChartPoints" class="chart-line" />
-                    <text x="42" y="196" class="chart-label">@FinnishTime(state.History[0].Timestamp)</text>
-                    <text x="690" y="196" class="chart-label">@FinnishTime(state.UpdatedAt)</text>
-                </svg>
-            </div>
-            <div class="trend-summary"><span><span class="subtle">Nyt</span> <strong>@Occupancy.ToString("P0")</strong></span><span><span class="subtle">Jakson keskiarvo</span> <strong>@state.History.Average(h => h.Occupancy(WardId)).ToString("P0")</strong></span></div>
-        </section>
-
-        <section class="panel theatre-panel" aria-labelledby="theatres-title">
-            <div class="panel-heading"><div><h2 id="theatres-title">Leikkaussalit</h2><p>Koko sairaala · @state.Theatres.Count salia</p></div><span class="count-tag">@state.Theatres.Count(t => t.Status == "Vapaa") vapaana</span></div>
-            <div class="theatres">
-                @foreach (var theatre in state.Theatres)
-                {
-                    <div class="theatre" @key="theatre.Name"><span class="theatre-icon" aria-hidden="true">+</span><div><strong>@theatre.Name</strong><small>@theatre.Specialty</small></div><span class="status-pill @(theatre.Status == "Vapaa" ? "green" : theatre.Status == "Valmistelu" ? "amber" : "blue")">@theatre.Status</span></div>
+                    <g><text x="@Num(place.Position.X)" y="@Num(place.Position.Y + Radius(place) + 16)" class="place-label">@place.Name</text></g>
+                    <g><text x="@Num(place.Position.X)" y="@Num(place.Position.Y + Radius(place) + 30)" class="place-count">@place.MissionsToday tehtävää</text></g>
                 }
-            </div>
-        </section>
-
-        <section class="panel equipment-panel" aria-labelledby="equipment-title">
-            <div class="panel-heading"><div><h2 id="equipment-title">Laitteiden saatavuus</h2><p>Koko sairaalan yhteiset resurssit</p></div><span class="count-tag">3 laiteryhmää</span></div>
-            <div class="equipment-list">
-                @foreach (var item in state.Equipment)
+                @foreach (var station in ArrivalsData.Stations)
                 {
-                    <div class="equipment" @key="item.Name"><div class="equipment-heading"><strong>@item.Name</strong><span><b>@item.Available</b> / @item.Total vapaana</span></div><div class="equipment-meter"><span class="equipment-used" style="@Width((double)item.InUse / item.Total)"></span><span class="equipment-free" style="@Width((double)item.Available / item.Total)"></span><span class="equipment-maintenance" style="@Width((double)item.Maintenance / item.Total)"></span></div><div class="equipment-legend"><span>● Käytössä @item.InUse</span><span>● Vapaa @item.Available</span><span>● Huollossa @item.Maintenance</span></div></div>
+                    <rect x="@Num(station.Position.X - 5)" y="@Num(station.Position.Y - 5)" width="10" height="10" rx="2" class="station" />
                 }
-            </div>
+                <g transform="translate(@Num(ArrivalsData.Hospital.X) @Num(ArrivalsData.Hospital.Y))">
+                    <circle r="15" class="hospital" />
+                    <path d="M -3 -9 h 6 v 6 h 6 v 6 h -6 v 6 h -6 v -6 h -6 v -6 h 6 z" class="hospital-cross" />
+                </g>
+                @foreach (var unit in units)
+                {
+                    var position = PointAlong(RoadOf(unit.FromPlaceId).Points, unit.Progress);
+                    var isSelected = unit.Id == selectedId;
+                    <g class="unit-marker" aria-hidden="true" @onclick="() => selectedId = unit.Id" @key="unit.Id">
+                        if (isSelected)
+                        {
+                            <circle cx="@Num(position.X)" cy="@Num(position.Y)" r="18" class="unit-ring" />
+                        }
+                        <circle cx="@Num(position.X)" cy="@Num(position.Y)" r="11" class="unit p-@unit.Priority" />
+                        <text x="@Num(position.X)" y="@Num(position.Y + 4)" class="unit-letter">@unit.Priority</text>
+                    </g>
+                    if (isSelected)
+                    {
+                        <g>
+                            <rect x="@Num(position.X - 52)" y="@Num(position.Y - 47)" width="104" height="22" rx="5" class="unit-tag" />
+                            <text x="@Num(position.X)" y="@Num(position.Y - 32)" class="unit-tag-text">@unit.Id · @unit.EtaMinutes min</text>
+                        </g>
+                    }
+                }
+            </svg>
+            <p class="map-note">Kartta on kaavamainen. Ympyrän koko kuvaa alueella tänään alkaneiden tehtävien määrää.</p>
         </section>
 
+        <section class="panel side-panel" aria-labelledby="incoming-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="section-label">SAAPUVAT</p>
+                    <h2 id="incoming-heading">Matkalla sairaalaan</h2>
+                </div>
+                <span class="count-tag">@units.Count yksikköä</span>
+            </div>
+            <ul class="unit-list">
+                @foreach (var unit in units)
+                {
+                    <li @key="unit.Id">
+                        <button type="button" class="unit-row @(unit.Id == selectedId ? "selected" : "")" aria-pressed="@(unit.Id == selectedId ? "true" : "false")" @onclick="() => selectedId = unit.Id">
+                            <span class="badge p-@unit.Priority" aria-label="Luokka @unit.Priority">@unit.Priority</span>
+                            <span class="unit-main"><strong>@unit.Id</strong><small>@unit.Complaint</small></span>
+                            <span class="unit-from"><small>Lähtöpaikka</small>@PlaceOf(unit.FromPlaceId).Name</span>
+                            <span class="unit-eta"><strong>@unit.EtaMinutes min</strong><small>klo @Clock(unit)</small></span>
+                        </button>
+                    </li>
+                }
+            </ul>
+            <div class="detail" aria-live="polite">
+                <h3>@Selected.Id · @Selected.Complaint</h3>
+                <dl>
+                    <div><dt>Kiireellisyys</dt><dd><span class="badge small p-@Selected.Priority" aria-hidden="true">@Selected.Priority</span> Luokka @Selected.Priority · @PriorityName(Selected.Priority)</dd></div>
+                    <div><dt>Reitti</dt><dd>@PlaceOf(Selected.FromPlaceId).Name → Keskussairaala</dd></div>
+                    <div><dt>Matkaa jäljellä</dt><dd>@((1 - Selected.Progress).ToString("P0", Finnish))</dd></div>
+                    <div><dt>Arvioitu saapuminen</dt><dd>klo @Clock(Selected) (@Selected.EtaMinutes min)</dd></div>
+                </dl>
+                <p class="detail-note">Luokat A–D: A on kiireellisin. Tiedoissa ei ole potilastietoja.</p>
+            </div>
+        </section>
     </div>
-    <footer><span><strong>Kaitajärven hyvinvointialue</strong> · Kuvitteellinen sairaala · Synteettiset tiedot</span><span>Ajat Suomen ajassa · .NET 10</span></footer>
+
+    <div class="lower-grid">
+        <section class="panel" aria-labelledby="hours-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="section-label">TÄNÄÄN</p>
+                    <h2 id="hours-heading">Tehtävät tunneittain</h2>
+                </div>
+                <ul class="legend plain">
+                    <li><span class="swatch-bar"></span> Tänään</li>
+                    <li><span class="swatch-line"></span> Tyypillinen torstai</li>
+                </ul>
+            </div>
+            <svg class="chart" viewBox="0 0 720 250" role="img" aria-labelledby="chart-title chart-desc">
+                <title id="chart-title">Tehtävät tunneittain tänään</title>
+                <desc id="chart-desc">@ChartSummary</desc>
+                @foreach (var tick in new[] { 0, 4, 8, 12 })
+                {
+                    <line x1="40" x2="700" y1="@Num(ChartY(tick))" y2="@Num(ChartY(tick))" class="grid" />
+                    <g><text x="32" y="@Num(ChartY(tick) + 4)" class="axis end">@tick</text></g>
+                }
+                @for (var hour = 0; hour < ArrivalsData.HourlyToday.Count; hour++)
+                {
+                    <rect x="@Num(SlotX(hour) + 5)" y="@Num(ChartY(ArrivalsData.HourlyToday[hour]))" width="17.5" height="@Num(200 - ChartY(ArrivalsData.HourlyToday[hour]))" rx="2" class="bar" />
+                }
+                <polyline points="@TypicalPoints" class="typical" />
+                <line x1="@Num(NowX)" x2="@Num(NowX)" y1="20" y2="200" class="now-line" />
+                <g><text x="@Num(NowX + 6)" y="30" class="axis">@SnapshotClock</text></g>
+                @foreach (var hour in new[] { 0, 3, 6, 9, 12, 15, 18, 21 })
+                {
+                    <g><text x="@Num(SlotX(hour) + 13.75)" y="220" class="axis middle">@hour.ToString("00")</text></g>
+                }
+                <text x="700" y="242" class="axis end">Tehtäviä tunnissa</text>
+            </svg>
+            <p class="chart-summary">@ChartSummary</p>
+        </section>
+
+        <section class="panel" aria-labelledby="areas-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="section-label">TÄNÄÄN</p>
+                    <h2 id="areas-heading">Tehtävät alueittain</h2>
+                </div>
+                <span class="count-tag">@ArrivalsData.MissionsToday yhteensä</span>
+            </div>
+            <ul class="bars">
+                @foreach (var area in Areas)
+                {
+                    <li>
+                        <span class="bar-name">@area.Name</span>
+                        <span class="bar-track"><span class="bar-fill" style="width:@Num(area.Missions * 100.0 / Areas[0].Missions)%"></span></span>
+                        <span class="bar-value">@area.Missions</span>
+                    </li>
+                }
+            </ul>
+        </section>
+
+        <section class="panel" aria-labelledby="stations-heading">
+            <div class="panel-heading">
+                <div>
+                    <p class="section-label">VALMIUS</p>
+                    <h2 id="stations-heading">Yksiköt asemittain</h2>
+                </div>
+                <span class="count-tag">@Free / @TotalUnits vapaana</span>
+            </div>
+            <ul class="stations">
+                @foreach (var station in ArrivalsData.Stations)
+                {
+                    <li>
+                        <span class="station-name">@station.Name</span>
+                        <span class="pips" role="img" aria-label="@station.Available vapaana yhteensä @station.Units yksiköstä">
+                            @for (var i = 0; i < station.Units; i++)
+                            {
+                                <span class="pip @(i < station.Available ? "free" : "")"></span>
+                            }
+                        </span>
+                        <span class="station-count">@station.Available / @station.Units</span>
+                    </li>
+                }
+            </ul>
+            <p class="pip-note"><span class="pip free"></span> vapaa <span class="pip"></span> tehtävällä</p>
+        </section>
+    </div>
+
+    <footer>
+        <span><strong>Kaitajärven hyvinvointialue</strong> · Kuvitteellinen alue · Synteettiset tiedot</span>
+        <span>Ei potilastietoja · Ajat Suomen ajassa</span>
+    </footer>
 </main>
 
 @code {
-    private readonly HospitalSimulation simulation = new(Random.Shared.Next(), DateTimeOffset.UtcNow);
-    private readonly CancellationTokenSource cancellation = new();
-    private Task? updateLoop;
-    private HospitalState state = null!;
-    private string selectedWard = "";
-    private bool failed;
-    private static readonly TimeZoneInfo FinnishZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Helsinki");
-    private string? WardId => selectedWard.Length == 0 ? null : selectedWard;
-    private IReadOnlyList<Ward> Wards => HospitalState.SelectWards(state.Wards, WardId);
-    private IReadOnlyList<OperationalAlert> Alerts => state.Alerts(WardId);
-    private string SelectionName => WardId is null ? "Koko sairaala" : Wards[0].Name;
-    private int Capacity => Wards.Sum(w => w.Capacity);
-    private int Occupied => Wards.Sum(w => w.Occupied);
-    private int Available => Capacity - Occupied;
-    private int Staff => Wards.Sum(w => w.Staff);
-    private int RequiredStaff => Wards.Sum(w => w.RequiredStaff);
-    private double Occupancy => (double)Occupied / Capacity;
-    private string ChartSummary => $"{SelectionName}. Nyt {Occupancy:P0}. Historia on kokonaan synteettistä.";
-    private string ChartPoints => string.Join(" ", state.History.Select((h, i) =>
-        FormattableString.Invariant($"{42 + 706.0 * i / Math.Max(1, state.History.Count - 1):F1},{172 - h.Occupancy(WardId) * 150:F1}")));
-    private string AreaPath => $"M42,172 L{ChartPoints.Replace(" ", " L")} L748,172 Z";
+    private static readonly CultureInfo Finnish = CultureInfo.GetCultureInfo("fi-FI");
+    private readonly IReadOnlyList<IncomingUnit> units = ArrivalsData.Incoming.OrderBy(u => u.EtaMinutes).ToArray();
+    private string selectedId = ArrivalsData.Incoming.OrderBy(u => u.EtaMinutes).First().Id;
 
-    protected override void OnInitialized()
+    private IncomingUnit Selected => units.First(u => u.Id == selectedId);
+    private int TotalUnits => ArrivalsData.Stations.Sum(s => s.Units);
+    private int Free => ArrivalsData.Stations.Sum(s => s.Available);
+    private string SnapshotText => ArrivalsData.Snapshot.ToString("d.M.yyyy 'klo' HH.mm", Finnish);
+    private string SnapshotClock => ArrivalsData.Snapshot.ToString("HH.mm", Finnish);
+
+    private double DeltaPercent => (ArrivalsData.MissionsToday - ArrivalsData.TypicalSoFar) * 100.0 / ArrivalsData.TypicalSoFar;
+    private string DeltaText => Math.Abs(DeltaPercent) < 1
+        ? "Tyypillisellä tasolla tähän kellonaikaan"
+        : $"{(DeltaPercent > 0 ? "+" : "−")}{Math.Abs(DeltaPercent).ToString("0", Finnish)} % tyypilliseen torstaihin verrattuna";
+
+    private record Area(string Name, int Missions);
+
+    private static readonly IReadOnlyList<Area> Areas = ArrivalsData.Places
+        .Select(p => new Area(p.Name, p.MissionsToday))
+        .Append(new Area("Muut alueet", ArrivalsData.OtherMissionsToday))
+        .OrderByDescending(a => a.Missions)
+        .ToArray();
+
+    private string MapSummary
     {
-        state = simulation.State;
-        updateLoop = UpdateAsync();
+        get
+        {
+            var busiest = ArrivalsData.Places.OrderByDescending(p => p.MissionsToday).First();
+            return $"{units.Count} ambulanssia on matkalla Keskussairaalaan. Lähin saapuu {units[0].EtaMinutes} minuutin kuluttua. Eniten tehtäviä tänään on alueella {busiest.Name} ({busiest.MissionsToday}).";
+        }
     }
 
-    private async Task UpdateAsync()
+    private string Clock(IncomingUnit unit) => ArrivalsData.Snapshot.AddMinutes(unit.EtaMinutes).ToString("HH.mm", Finnish);
+
+    private static Place PlaceOf(string id) => ArrivalsData.Places.Single(p => p.Id == id);
+    private static Road RoadOf(string placeId) => ArrivalsData.Roads.Single(r => r.PlaceId == placeId);
+    private static double Radius(Place place) => 10 + (Math.Sqrt(place.MissionsToday) * 3.2);
+    private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+    private static string Poly(IReadOnlyList<MapPoint> points) => string.Join(' ', points.Select(p => $"{Num(p.X)},{Num(p.Y)}"));
+
+    private static string PriorityName(Priority priority) => priority switch
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        try
+        Priority.A => "kiireellisin",
+        Priority.B => "kiireellinen",
+        Priority.C => "vähemmän kiireellinen",
+        _ => "kiireetön"
+    };
+
+    /// <summary>Finds the point a given fraction of the way along a polyline.</summary>
+    private static MapPoint PointAlong(IReadOnlyList<MapPoint> points, double progress)
+    {
+        var lengths = points.Zip(points.Skip(1), (a, b) => Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2))).ToArray();
+        var remaining = lengths.Sum() * progress;
+        for (var i = 0; i < lengths.Length; i++)
         {
-            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            if (remaining <= lengths[i])
             {
-                await InvokeAsync(() =>
-                {
-                    state = simulation.Advance(DateTimeOffset.UtcNow);
-                    StateHasChanged();
-                });
+                var t = lengths[i] == 0 ? 0 : remaining / lengths[i];
+                return new(points[i].X + ((points[i + 1].X - points[i].X) * t), points[i].Y + ((points[i + 1].Y - points[i].Y) * t));
             }
+            remaining -= lengths[i];
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            Logger.LogError(exception, "Hospital demo simulation stopped.");
-            failed = true;
-            await InvokeAsync(StateHasChanged);
-        }
+        return points[^1];
     }
 
-    private static string FinnishTime(DateTimeOffset time) => TimeZoneInfo.ConvertTime(time, FinnishZone).ToString("HH:mm:ss");
-    private static string Width(double fraction) => FormattableString.Invariant($"width:{fraction * 100:F2}%");
-    private static string OccupancyClass(double value) => value >= .95 ? "red" : value >= .85 ? "amber" : "blue";
-    private static string OccupancyLabel(double value) => value >= .95 ? "▲ Lähes täynnä" : value >= .85 ? "▲ Kohonnut käyttöaste" : "● Tasapainoinen";
-    private static string LevelClass(AlertLevel level) => level switch { AlertLevel.Critical => "red", AlertLevel.Attention => "amber", _ => "green" };
-    private static string LevelLabel(AlertLevel level) => level switch { AlertLevel.Critical => "Kriittinen", AlertLevel.Attention => "Huomio", _ => "Normaali" };
+    private const double ChartMax = 12;
+    private static double ChartY(double value) => 200 - (value / ChartMax * 180);
+    private static double SlotX(int hour) => 40 + (660.0 / 24 * hour);
+    private double NowX => 40 + (660.0 / 24 * (ArrivalsData.Snapshot.Hour + (ArrivalsData.Snapshot.Minute / 60.0)));
+    private static string TypicalPoints => string.Join(' ', ArrivalsData.HourlyTypical.Select((value, hour) => $"{Num(SlotX(hour) + 13.75)},{Num(ChartY(value))}"));
 
-    public async ValueTask DisposeAsync()
+    private string ChartSummary
     {
-        await cancellation.CancelAsync();
-        if (updateLoop is not null)
+        get
         {
-            await updateLoop;
+            var today = ArrivalsData.HourlyToday;
+            var peak = today.Max();
+            var peakHour = today.ToList().IndexOf(peak);
+            return $"Tänään on alkanut {ArrivalsData.MissionsToday} tehtävää. Vilkkain tunti oli klo {peakHour:00}–{peakHour + 1:00} ({peak} tehtävää). Tyypillisenä torstaina samaan aikaan mennessä tehtäviä on {ArrivalsData.TypicalSoFar}.";
         }
-        cancellation.Dispose();
     }
 }
