@@ -55,8 +55,22 @@ Resources:
 - Container App `ca-hospital-demo-swc-001`, public HTTPS, non-root Linux container, 0.25 vCPU / 0.5 GiB, **0–1 replicas**, health probes.
 - Azure Container Registry Basic `crhospitaldemoswc001<resource-group-derived suffix>`, authenticated access only, admin user disabled.
 - Managed identity `id-hospital-demo-swc-001`, scoped `AcrPull` permission. No registry passwords in templates or source.
+- Log Analytics workspace `log-hospital-demo-swc-001` (30-day retention, **0.2 GB/day hard limit**) receiving the container's console and system logs.
+- Application Insights `appi-hospital-demo-swc-001`, workspace-based. The ASP.NET Core host sends server request telemetry, with `/healthz` probes filtered out. The browser app sends nothing.
 
-The app is deployed by image digest, not a mutable `latest` tag. The registry uses its authenticated public endpoint (Basic does not offer a private endpoint). No VNet, database, Application Insights or retained Log Analytics workspace is provisioned. Use Container Apps live logs for troubleshooting.
+The app is deployed by image digest, not a mutable `latest` tag. The registry uses its authenticated public endpoint (Basic does not offer a private endpoint). No VNet or database is provisioned.
+
+### Monitoring
+
+- The telemetry connection string is stored as a Container App secret and passed through `secretRef`. Telemetry is only sent when that setting exists, so local runs and tests send nothing.
+- Query logs in the Azure portal (Log Analytics > Logs), for example `ContainerAppConsoleLogs_CL | take 50`. Live streaming still works: see the `az containerapp logs show` command below.
+- The 0.2 GB/day limit bounds ingestion cost. When it is reached, collection pauses until the next day.
+- **Availability test (optional, off by default).** It pings `/healthz` from West and North Europe every 15 minutes. It is off because each run costs about US$0.000645, which is roughly **US$3.70/month for 2 locations at 15-minute intervals** and more with extra locations or higher frequency. Every ping also wakes the scale-to-zero app, which adds compute cost. Enable it only if you want an outside-in "is it up" signal:
+
+```powershell
+.\scripts\deploy.ps1 -ApproveDeployment -UseSdkContainerBuild -EnableAvailabilityTest -AlertEmail you@example.com
+```
+`-AlertEmail` is optional and is only stored in Azure, never in the repository. Without it the test runs and its results are visible in Application Insights, but nobody is notified.
 
 Scale-to-zero can delay the initial page load. Once loaded, the page makes no further requests, because the data is fixed in the app.
 
@@ -67,7 +81,7 @@ Sweden Central public retail prices checked during planning:
 - Active compute at the configured size: about **US$0.027/hour** before grants.
 - Requests: US$0.40/million before grants.
 
-Light demo use may cost roughly **US$5–10/month**, but this is **not a spending cap**. Continuous active compute for 730 hours is about US$19.71 plus the registry before grants. Subscription-shared free allowances may already be consumed. Transfer, storage overages, tax and optional later-added monitoring are extra. Check current prices before deployment.
+Light demo use may cost roughly **US$5–10/month**, but this is **not a spending cap**. Continuous active compute for 730 hours is about US$19.71 plus the registry before grants. Monitoring adds log and telemetry ingestion at about US$2.99 per GB after the monthly free allowance; this tiny app should stay well under that, and the 0.2 GB/day workspace limit caps the worst case. The optional availability test is extra (see Monitoring). Subscription-shared free allowances may already be consumed. Transfer, storage overages and tax are extra. Check current prices before deployment.
 
 ### Deploying from GitHub Actions
 
@@ -123,7 +137,7 @@ az containerapp logs show --subscription aa8e5073-bda3-45ad-a772-7c5989954f8e --
 
 ### Cleanup
 
-Inspect the resource group first. Never automatically delete the existing resource group: it may later contain unrelated resources. To retire this demo, explicitly delete **only** the named Container App, its environment, its managed identity and its generated registry (registry deletion removes its images). Deleting the app alone does not stop registry charges. Check names and dependencies in Azure before confirming each removal.
+Inspect the resource group first. Never automatically delete the existing resource group: it may later contain unrelated resources. To retire this demo, explicitly delete **only** the named Container App, its environment, its managed identity, its generated registry (registry deletion removes its images), the Application Insights resource and the Log Analytics workspace (deleting the workspace removes its stored logs). If the optional availability test was enabled, also delete `avail-hospital-demo-swc-001`, and the alert rule and action group if an alert email was set. Deleting the app alone does not stop registry or monitoring charges. Check names and dependencies in Azure before confirming each removal.
 
 ## Validation
 

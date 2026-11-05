@@ -9,12 +9,47 @@ param location string = 'swedencentral'
 @maxLength(64)
 param deployedBy string = 'hospital-dashboard'
 
+@description('Days to keep logs and telemetry. 30 days is included in the ingestion price.')
+@minValue(30)
+@maxValue(90)
+param retentionInDays int = 30
+
 var suffix = uniqueString(resourceGroup().id)
 var tags = {
   workload: 'hospital-dashboard'
   environment: 'demo'
   'deployed-by': deployedBy
   data: 'synthetic-only'
+}
+
+// One workspace holds container logs and Application Insights data.
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
+  name: 'log-hospital-demo-swc-001'
+  location: location
+  tags: tags
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: retentionInDays
+    // A hard daily limit bounds the cost if something starts logging heavily.
+    // When the limit is reached, collection stops until the next day.
+    workspaceCapping: {
+      dailyQuotaGb: json('0.2')
+    }
+  }
+}
+
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: 'appi-hospital-demo-swc-001'
+  location: location
+  tags: tags
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalyticsWorkspace.id
+    IngestionMode: 'LogAnalytics'
+  }
 }
 
 // Keep the registry private to authenticated clients; no admin passwords.
@@ -58,7 +93,14 @@ resource containerEnvironment 'Microsoft.App/managedEnvironments@2026-07-01' = {
   location: location
   tags: tags
   properties: {
-    // Omit appLogsConfiguration: no retained log workspace is provisioned.
+    // Container console and system logs go to the workspace for queryable history.
+    appLogsConfiguration: {
+      destination: 'log-analytics'
+      logAnalyticsConfiguration: {
+        customerId: logAnalyticsWorkspace.properties.customerId
+        sharedKey: logAnalyticsWorkspace.listKeys().primarySharedKey
+      }
+    }
     workloadProfiles: [
       {
         name: 'Consumption'
@@ -72,3 +114,5 @@ output registryName string = containerRegistry.name
 output registryServer string = containerRegistry.properties.loginServer
 output identityName string = pullIdentity.name
 output environmentName string = containerEnvironment.name
+output logAnalyticsName string = logAnalyticsWorkspace.name
+output applicationInsightsName string = applicationInsights.name

@@ -7,7 +7,10 @@ param(
     [string] $DeployedBy = 'hospital-dashboard',
     [switch] $ApproveDeployment,
     [switch] $Preview,
-    [switch] $UseSdkContainerBuild
+    [switch] $UseSdkContainerBuild,
+    # Optional, off by default: each test run costs money and wakes the app. See the README.
+    [switch] $EnableAvailabilityTest,
+    [string] $AlertEmail = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,7 +69,8 @@ try {
     $digest = Invoke-Azure -Arguments @('acr', 'repository', 'show', '--subscription', $SubscriptionId, '--name', $registry, '--image', "hospitaldashboard:$tag", '--query', 'digest', '-o', 'tsv')
     if ($digest -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Registry returned an invalid image digest.' }
     $immutableImage = "$server/hospitaldashboard@$digest"
-    $appParameters = $parameters + @("image=$immutableImage")
+    $appParameters = $parameters + @("image=$immutableImage", "enableAvailabilityTest=$($EnableAvailabilityTest.IsPresent.ToString().ToLowerInvariant())")
+    if (-not [string]::IsNullOrWhiteSpace($AlertEmail)) { $appParameters += "alertEmail=$AlertEmail" }
     Invoke-Azure (@('deployment', 'group', 'validate') + $common + @('--template-file', 'infra/app.bicep') + $appParameters + @('--only-show-errors', '-o', 'none'))
     $app = Invoke-Azure (@('deployment', 'group', 'create') + $common + @('--name', 'hospital-app', '--template-file', 'infra/app.bicep') + $appParameters + @('--only-show-errors', '-o', 'json')) | ConvertFrom-Json
     $url = $app.properties.outputs.appUrl.value

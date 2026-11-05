@@ -1,7 +1,19 @@
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.ResponseCompression;
+using OpenTelemetry.Instrumentation.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
+
+// Telemetry is sent only when Azure supplies a connection string, so local runs and tests stay silent.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor();
+    // Container health probes and availability pings hit /healthz constantly and would dominate ingestion.
+    builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(options =>
+        options.Filter = context => !context.Request.Path.StartsWithSegments("/healthz"));
+}
+
 builder.Services.AddResponseCompression(options =>
 {
     options.EnableForHttps = true;
