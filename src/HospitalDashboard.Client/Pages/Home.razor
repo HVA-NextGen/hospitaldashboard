@@ -1,0 +1,180 @@
+@page "/"
+@using System.Globalization
+@using HospitalDashboard.Core
+@implements IAsyncDisposable
+@inject ILogger<Home> Logger
+
+<PageTitle>Tilannekuva | Kaitajärven keskussairaala</PageTitle>
+
+<header class="site-header">
+    <a class="brand" href="/" aria-label="Kaitajärven keskussairaala, etusivu">
+        <span class="brand-mark" aria-hidden="true">+</span>
+        <span><strong>Kaitajärvi</strong><small>HYVINVOINTIALUE</small></span>
+    </a>
+    <div class="header-divider"></div>
+    <span class="hospital-name">Kaitajärven keskussairaala</span>
+    <div class="header-right"><span class="region-mark" aria-hidden="true">K</span><span>Sairaalan toiminta<small>Toiminnan tilannekuva</small></span></div>
+</header>
+
+<main>
+    <section class="page-heading" aria-labelledby="page-title">
+        <div><div class="eyebrow">SAIRAALAN TOIMINTA / YLEISNÄKYMÄ</div><h1 id="page-title">Yhteinen tilannekuva<span class="title-dot">.</span></h1><p>Ajantasainen näkymä sairaalan kapasiteettiin ja resursseihin.</p></div>
+        <div class="live-panel"><span class="live-badge"><span aria-hidden="true"></span> Tilannekuva päivittyy</span><small>Päivitetty <time datetime="@state.UpdatedAt.ToString("O")">@FinnishTime(state.UpdatedAt)</time> · 5 s välein</small></div>
+    </section>
+
+    @if (failed)
+    {
+        <div class="failure" role="alert">Tilannekuvan päivitys epäonnistui. Näytetyt luvut eivät enää päivity. Lataa sivu uudelleen.</div>
+    }
+
+    <div class="toolbar">
+        <div class="view-label"><span class="grid-symbol" aria-hidden="true">▦</span> Toiminnan yleiskuva <span class="subtle">/</span> <strong>@SelectionName</strong></div>
+        <div class="filter"><label for="ward-filter">Osasto</label><select id="ward-filter" @bind="selectedWard"><option value="">Kaikki osastot</option>@foreach (var ward in state.Wards) { <option value="@ward.Id">@ward.Name</option> }</select></div>
+    </div>
+
+    <section class="metrics" aria-label="Keskeiset tunnusluvut">
+        <article class="metric-card"><div class="metric-title">Vuodepaikkojen käyttöaste <span class="metric-icon blue" aria-hidden="true">▤</span></div><div class="metric-value">@Occupancy.ToString("P0")<span class="metric-unit">@Occupied / @Capacity paikkaa</span></div><div class="meter"><span style="@Width(Occupancy)" class="@OccupancyClass(Occupancy)"></span></div><div class="metric-footer"><span class="status-text @OccupancyClass(Occupancy)">@OccupancyLabel(Occupancy)</span><span>@SelectionName</span></div></article>
+        <article class="metric-card"><div class="metric-title">Vapaat vuodepaikat <span class="metric-icon green" aria-hidden="true">+</span></div><div class="metric-value">@Available<span class="metric-unit">paikkaa käytettävissä</span></div><div class="metric-note">Kapasiteetti yhteensä @Capacity paikkaa</div><div class="metric-footer"><span class="status-text green">● Käytettävissä</span><span>@SelectionName</span></div></article>
+        <article class="metric-card"><div class="metric-title">Päivystyksen odotusaika <span class="metric-icon amber" aria-hidden="true">◷</span></div><div class="metric-value">@state.WaitMinutes <span class="value-unit">min</span><span class="metric-unit">@state.Queue henkilöä jonossa</span></div><div class="metric-note">Arvioitu odotus vastaanotolle</div><div class="metric-footer"><span class="status-text @(state.WaitMinutes >= 45 ? "amber" : "green")">@(state.WaitMinutes >= 45 ? "▲ Kohonnut odotus" : "● Tavanomainen")</span><span>Koko sairaala</span></div></article>
+        <article class="metric-card"><div class="metric-title">Henkilöstö vuorossa <span class="metric-icon violet" aria-hidden="true">♧</span></div><div class="metric-value">@Staff<span class="metric-unit">tavoite @RequiredStaff ammattilaista</span></div><div class="metric-note">Hoitohenkilöstö · nykyinen työvuoro</div><div class="metric-footer"><span class="status-text @(Staff < RequiredStaff ? "amber" : "green")">@(Staff < RequiredStaff ? $"▲ Vaje {RequiredStaff - Staff}" : "● Tavoite täyttyy")</span><span>@SelectionName</span></div></article>
+    </section>
+
+    <div class="dashboard-grid">
+        <section class="panel ward-panel" aria-labelledby="wards-title">
+            <div class="panel-heading"><div><h2 id="wards-title">Osastojen kapasiteetti</h2><p>Vuodepaikat ja henkilöstö samassa näkymässä</p></div><span class="count-tag">@Wards.Count osastoa</span></div>
+            <div class="table-scroll"><table><thead><tr><th>Osasto</th><th>Käyttöaste</th><th>Vapaat</th><th>Henkilöstö</th><th>Tilanne</th></tr></thead><tbody>
+                @foreach (var ward in Wards)
+                {
+                    <tr @key="ward.Id"><td><strong>@ward.Name</strong><small>@ward.Specialty</small></td><td><div class="occupancy-cell"><strong>@ward.Occupancy.ToString("P0")</strong><span>@ward.Occupied/@ward.Capacity</span></div><div class="meter small"><span style="@Width(ward.Occupancy)" class="@OccupancyClass(ward.Occupancy)"></span></div></td><td><strong class="free-count">@ward.Available</strong><small>paikkaa</small></td><td><strong>@ward.Staff <span class="subtle">/ @ward.RequiredStaff</span></strong><small>vuorossa / tavoite</small></td><td><span class="status-pill @LevelClass(ward.Level)">@LevelLabel(ward.Level)</span></td></tr>
+                }
+            </tbody></table></div>
+        </section>
+
+        <section class="panel alerts-panel" aria-labelledby="alerts-title">
+            <div class="panel-heading"><div><h2 id="alerts-title">Huomiot ja hälytykset</h2><p>Valittu osasto ja koko sairaalan huomiot</p></div><span class="count-tag alert-count">@Alerts.Count</span></div>
+            <div class="alerts-list">
+                @if (Alerts.Count == 0)
+                {
+                    <div class="empty-state"><span aria-hidden="true">✓</span><strong>Ei aktiivisia huomioita</strong><p>Resurssit ovat tavoiterajojen sisällä.</p></div>
+                }
+                @foreach (var alert in Alerts)
+                {
+                    <article @key="alert.Id" class="alert-item @LevelClass(alert.Level)"><span class="alert-symbol" aria-hidden="true">!</span><div><span class="alert-level">@LevelLabel(alert.Level) · @(alert.WardId is null ? "Koko sairaala" : "Osasto")</span><h3>@alert.Title</h3><p>@alert.Detail</p></div></article>
+                }
+            </div>
+        </section>
+
+        <section class="panel trend-panel" aria-labelledby="trends-title">
+            <div class="panel-heading"><div><h2 id="trends-title">Kapasiteetin kehitys</h2><p>@SelectionName · vuodepaikkojen käyttöaste, viimeiset 60 min</p></div><span class="chart-key"><span></span> Käyttöaste</span></div>
+            <div class="chart-container">
+                <svg class="trend-chart" viewBox="0 0 760 200" role="img" aria-labelledby="chart-title chart-desc">
+                    <title id="chart-title">Vuodepaikkojen käyttöaste</title><desc id="chart-desc">@ChartSummary</desc>
+                    @foreach (var tick in new[] { 0, 25, 50, 75, 100 })
+                    {
+                        <line x1="42" x2="748" y1="@((172 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" y2="@((172 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" class="chart-grid" />
+                        <g><text x="0" y="@((176 - tick * 1.5).ToString(CultureInfo.InvariantCulture))" class="chart-label">@tick %</text></g>
+                    }
+                    <path d="@AreaPath" class="chart-area" />
+                    <polyline points="@ChartPoints" class="chart-line" />
+                    <text x="42" y="196" class="chart-label">@FinnishTime(state.History[0].Timestamp)</text>
+                    <text x="690" y="196" class="chart-label">@FinnishTime(state.UpdatedAt)</text>
+                </svg>
+            </div>
+            <div class="trend-summary"><span><span class="subtle">Nyt</span> <strong>@Occupancy.ToString("P0")</strong></span><span><span class="subtle">Jakson keskiarvo</span> <strong>@state.History.Average(h => h.Occupancy(WardId)).ToString("P0")</strong></span></div>
+        </section>
+
+        <section class="panel theatre-panel" aria-labelledby="theatres-title">
+            <div class="panel-heading"><div><h2 id="theatres-title">Leikkaussalit</h2><p>Koko sairaala · @state.Theatres.Count salia</p></div><span class="count-tag">@state.Theatres.Count(t => t.Status == "Vapaa") vapaana</span></div>
+            <div class="theatres">
+                @foreach (var theatre in state.Theatres)
+                {
+                    <div class="theatre" @key="theatre.Name"><span class="theatre-icon" aria-hidden="true">+</span><div><strong>@theatre.Name</strong><small>@theatre.Specialty</small></div><span class="status-pill @(theatre.Status == "Vapaa" ? "green" : theatre.Status == "Valmistelu" ? "amber" : "blue")">@theatre.Status</span></div>
+                }
+            </div>
+        </section>
+
+        <section class="panel equipment-panel" aria-labelledby="equipment-title">
+            <div class="panel-heading"><div><h2 id="equipment-title">Laitteiden saatavuus</h2><p>Koko sairaalan yhteiset resurssit</p></div><span class="count-tag">3 laiteryhmää</span></div>
+            <div class="equipment-list">
+                @foreach (var item in state.Equipment)
+                {
+                    <div class="equipment" @key="item.Name"><div class="equipment-heading"><strong>@item.Name</strong><span><b>@item.Available</b> / @item.Total vapaana</span></div><div class="equipment-meter"><span class="equipment-used" style="@Width((double)item.InUse / item.Total)"></span><span class="equipment-free" style="@Width((double)item.Available / item.Total)"></span><span class="equipment-maintenance" style="@Width((double)item.Maintenance / item.Total)"></span></div><div class="equipment-legend"><span>● Käytössä @item.InUse</span><span>● Vapaa @item.Available</span><span>● Huollossa @item.Maintenance</span></div></div>
+                }
+            </div>
+        </section>
+
+    </div>
+    <footer><span><strong>Kaitajärven hyvinvointialue</strong> · Kuvitteellinen sairaala · Synteettiset tiedot</span><span>Ajat Suomen ajassa · .NET 10</span></footer>
+</main>
+
+@code {
+    private readonly HospitalSimulation simulation = new(Random.Shared.Next(), DateTimeOffset.UtcNow);
+    private readonly CancellationTokenSource cancellation = new();
+    private Task? updateLoop;
+    private HospitalState state = null!;
+    private string selectedWard = "";
+    private bool failed;
+    private static readonly TimeZoneInfo FinnishZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Helsinki");
+    private string? WardId => selectedWard.Length == 0 ? null : selectedWard;
+    private IReadOnlyList<Ward> Wards => HospitalState.SelectWards(state.Wards, WardId);
+    private IReadOnlyList<OperationalAlert> Alerts => state.Alerts(WardId);
+    private string SelectionName => WardId is null ? "Koko sairaala" : Wards[0].Name;
+    private int Capacity => Wards.Sum(w => w.Capacity);
+    private int Occupied => Wards.Sum(w => w.Occupied);
+    private int Available => Capacity - Occupied;
+    private int Staff => Wards.Sum(w => w.Staff);
+    private int RequiredStaff => Wards.Sum(w => w.RequiredStaff);
+    private double Occupancy => (double)Occupied / Capacity;
+    private string ChartSummary => $"{SelectionName}. Nyt {Occupancy:P0}. Historia on kokonaan synteettistä.";
+    private string ChartPoints => string.Join(" ", state.History.Select((h, i) =>
+        FormattableString.Invariant($"{42 + 706.0 * i / Math.Max(1, state.History.Count - 1):F1},{172 - h.Occupancy(WardId) * 150:F1}")));
+    private string AreaPath => $"M42,172 L{ChartPoints.Replace(" ", " L")} L748,172 Z";
+
+    protected override void OnInitialized()
+    {
+        state = simulation.State;
+        updateLoop = UpdateAsync();
+    }
+
+    private async Task UpdateAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellation.Token))
+            {
+                await InvokeAsync(() =>
+                {
+                    state = simulation.Advance(DateTimeOffset.UtcNow);
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Hospital demo simulation stopped.");
+            failed = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string FinnishTime(DateTimeOffset time) => TimeZoneInfo.ConvertTime(time, FinnishZone).ToString("HH:mm:ss");
+    private static string Width(double fraction) => FormattableString.Invariant($"width:{fraction * 100:F2}%");
+    private static string OccupancyClass(double value) => value >= .95 ? "red" : value >= .85 ? "amber" : "blue";
+    private static string OccupancyLabel(double value) => value >= .95 ? "▲ Lähes täynnä" : value >= .85 ? "▲ Kohonnut käyttöaste" : "● Tasapainoinen";
+    private static string LevelClass(AlertLevel level) => level switch { AlertLevel.Critical => "red", AlertLevel.Attention => "amber", _ => "green" };
+    private static string LevelLabel(AlertLevel level) => level switch { AlertLevel.Critical => "Kriittinen", AlertLevel.Attention => "Huomio", _ => "Normaali" };
+
+    public async ValueTask DisposeAsync()
+    {
+        await cancellation.CancelAsync();
+        if (updateLoop is not null)
+        {
+            await updateLoop;
+        }
+        cancellation.Dispose();
+    }
+}

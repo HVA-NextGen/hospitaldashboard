@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.copilot-azure/
+artifacts/
+TestResults/
+**/appsettings.Local.json
+*.user
+.env
+.env.*
+!.env.example

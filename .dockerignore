@@ -1,0 +1,11 @@
+**/bin
+**/obj
+.git
+.copilot-azure
+.vs
+.vscode
+artifacts
+TestResults
+tests
+**/*.user
+.env*
