@@ -95,8 +95,8 @@ if ([string]::IsNullOrWhiteSpace($existingCredential)) {
 
 function Add-Role {
     param([string] $Role, [string[]] $Extra = @())
-    $existing = Invoke-Native az @('role', 'assignment', 'list', '--assignee', $principalId, '--scope', $scope, '--role', $Role, '--query', 'length(@)', '-o', 'tsv')
-    if ([int]$existing -gt 0) { Write-Host "Role already assigned: $Role"; return }
+    $existing = Invoke-Native az @('role', 'assignment', 'list', '--assignee', $principalId, '--scope', $scope, '--role', $Role, '--query', '[].id', '-o', 'tsv')
+    if (-not [string]::IsNullOrWhiteSpace($existing)) { Write-Host "Role already assigned: $Role"; return }
     Invoke-Native az (@('role', 'assignment', 'create', '--assignee-object-id', $principalId, '--assignee-principal-type', 'ServicePrincipal', '--role', $Role, '--scope', $scope) + $Extra) | Out-Null
     Write-Host "Assigned role: $Role"
 }
